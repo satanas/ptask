@@ -9,8 +9,9 @@ INTRO = [
     'Type "help" to get a list of available commands.',
 ]
 
-conn = sqlite3.connect('ptask.db')
-c = conn.cursor()
+# FIXME: Esto no va aquí, debemos establecer la conexión al momento de autenticar al usuario
+#conn = sqlite3.connect('ptask.db')
+#c = conn.cursor()
 
 class Ptask(cmd.Cmd):
     def __init__(self):
