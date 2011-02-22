@@ -18,6 +18,9 @@ class Ptask(cmd.Cmd):
         self.prompt = 'ptask> '
         self.intro = '\n'.join(INTRO)
         self.cmdloop()
+
+    def do_help(self, line):
+        print "this is da help"
     
     def default(self, line):
         print '\n'.join(['Command not found.', INTRO[1]])
