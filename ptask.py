@@ -3,6 +3,7 @@
 
 import cmd
 import getpass
+import random
 import sqlite3
 import hashlib
 
@@ -20,19 +21,18 @@ class Ptask(cmd.Cmd):
         cmd.Cmd.__init__(self)
         self.prompt = 'ptask> '
         self.intro = '\n'.join(INTRO)
+        initdb()
         self.cmdloop()
 
     def do_inituser(self, line):
         #user_name, password
         name = raw_input('user_name: ')
         pwd = getpass.getpass("password: ")
-	repwd = getpass.getpass("password again: ")
+        repwd = getpass.getpass("password again: ")
         if pwd == repwd:
-           m = hashlib.md5()
-           m.update(pwd)
-           self.user_name = name
-           self.user_pwd = m.hexdigest()
-           
+           create_user(name,pwd)
+        else:
+           print 'Password mismatch!'
 
     def do_help(self, line):
         print "this is da help"
@@ -40,13 +40,31 @@ class Ptask(cmd.Cmd):
     def default(self, line):
         print '\n'.join(['Command not found.', INTRO[1]])
 
-    def initdb(self, user_name, user_pwd, user_pwd_salt):
+
+    #class functions
+
+    def salt(self):
+        s = ""
+        for i in range(7):
+            s = s + chr(random.randrange(65,128))        
+        return s
+
+    def create_user(self, name, pwd):
+        m = hashlib.md5()
+        salt = self.salt()
+        m.update(password + self.salt())
+        password = m.hexdigest()
+        if self.c:
+           self.c.execute('INSERT INTO users VALUES (0, ?,?,?,null)', name, password, salt)
+           self.c.commit()
+
+    
+    def initdb(self):
         conn = sqlite3.connect('ptask.db')
-        c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXIST taskrecords  (id INTEGER PRIMARY KEY, user_id INTEGER, description TEXT, task TEXT, start_date DATE, end_date DATE, estimated_time INTEGER, worked_timed INTEGER, tags TEXT)''') 
-        c.execute('''CREATE TABLE IF NOT EXIST users  (id INTEGER PRIMARY KEY, realname TEXT, password_hash TEXT, password_salt TEXT, last_login DATE) ''')
-        c.commit()
-        c.execute('INSERT INTO users VALUES (0,?,?,?,null)', user_name, user_pwd, user_pwd_salt)
+        self.c = conn.cursor()
+        self.c.execute('''CREATE TABLE IF NOT EXIST taskrecords  (id INTEGER PRIMARY KEY, user_id INTEGER, description TEXT, task TEXT, start_date DATE, end_date DATE, estimated_time INTEGER, worked_timed INTEGER, tags TEXT)''') 
+        self.c.execute('''CREATE TABLE IF NOT EXIST users  (id INTEGER PRIMARY KEY, realname TEXT, password_hash TEXT, password_salt TEXT, last_login DATE) ''')
+        self.c.commit()
         
 if __name__ == '__main__':
     p = Ptask()
