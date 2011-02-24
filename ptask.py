@@ -90,11 +90,20 @@ class Ptask(cmd.Cmd):
 
 
     def __valid_date(self,date):
+        #FIXME: this totally sucks!
         try:
             date = time.strptime(date, '%d/%m/%Y')
             return True
         except ValueError:
             return False
+
+    def __valid_int(self, number):
+        try:
+           int(number)
+        except ValueError:
+           return False
+        else:
+           return True
         
     def __initdb(self):
         if not os.path.isfile(DATABASE):
@@ -112,8 +121,12 @@ class Ptask(cmd.Cmd):
     #users functions        
     def __login(self):
         while 1:
-            user = raw_input('Username: ')
-            pwd = getpass.getpass('Password: ')
+            user = ''
+            pwd = ''
+            while user == '':
+                user = raw_input('Username: ')
+            while pwd == '':
+                pwd = getpass.getpass('Password: ')
             if self.__validate_credentials(user, pwd):
                break
             else:
@@ -160,8 +173,12 @@ class Ptask(cmd.Cmd):
             admin = 1 if (admin == 'y' or admin == '') else 0
         
         while 1:
-            pwd = getpass.getpass('Password: ')
-            repwd = getpass.getpass('Password again: ')
+            pwd = ''
+            repwd = ''
+            while pwd == '':
+                pwd = getpass.getpass('Password: ')
+            while repwd == '':
+                repwd = getpass.getpass('Password again: ')
             if self.__confirm_passwords(pwd, repwd):
                 break
             else:
@@ -205,8 +222,17 @@ class Ptask(cmd.Cmd):
            return    
         if len(description) < 3:
            description = 'none'
+        while not self.__valid_int(estimated):
+            estimated = raw_input('estimated time: ')
+        while not self.__valid_int(worked):
+            worked = raw_input('worked time: ')
+        if start == '':
+           start = str(date.today().day)+'/'+str(date.today().month)+'/'+str(date.today().year)
+        if end == '':
+           end =str(date.today().day)+'/'+str(date.today().month)+'/'+str(date.today().year)
         if not self.__valid_date(start) and not self.__valid_date(end):
            print 'Invalid Dates!'
+           return
         if tags == '':
            tags = 'none'
         cursor = self.conn.cursor()
@@ -216,15 +242,42 @@ class Ptask(cmd.Cmd):
         
     def __list_task(self):
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM taskrecords WHERE id=?", (self.user_id,))
+        cursor.execute("SELECT * FROM taskrecords WHERE user_id=?", (self.user_id,))
         print '\n\t\t\t%s\'s tasks' % self.user_name
-        print "==============================================================="
-        print "%-20s %-20s %s\t %s" % ('Name', 'Description', 'Estimated', 'Worked')
-        print "==============================================================="
+        print "==============================================================================="
+        print "%-4s %-20s %-20s %s\t %s" % ('id','Name', 'Description', 'Estimated', 'Worked')
+        print "==============================================================================="
         for row in cursor:
-            print "%-20s %-20s %s\t\t %s" % (row[3], row[2], row[6], row[7])
+            print "%-4d %-20s %-20s %s\t\t %s" % (row[0], row[3], (row[2][0:7]+'...'), row[6], row[7])
         print '\n'
+        #TODO: add rowcount!
+        #print "%d rows" % rc
 
+       
+    def __show_task(self, args):
+        if self.__valid_int(args[1]):
+           task_id = args[1]
+        else:
+           return
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM taskrecords WHERE id=?", (task_id,))
+        row = cursor.fetchone()
+        if row == None:
+           print "Task not found!"
+           return
+        print '\n\t\t\tTask: %s' % row[3]
+        print "==============================================================================="
+        print "id:        %d" % row[0]
+        print "name:      %s" % row[3]
+        print "desc:      %s" % row[2]
+        print "start:     %s" % row[4]
+        print "end:       %s" % row[5]
+        print "estimated: %s" % row[6]
+        print "worked:    %s" % row[7]
+        print "tags:      %s" % row[8]
+        print '\n'
+        #TODO: add rowcount!
+        #print "%d rows" % rc
        
         
     #================================================
@@ -250,6 +303,14 @@ class Ptask(cmd.Cmd):
             self.__create_task()
         elif arg[0] == 'list':
             self.__list_task()
+        elif arg[0] == 'show':
+            if len(arg) < 2:    
+               print '\n'.join(MISSING)
+            else:
+               self.__show_task(arg)
+        else:
+            print "Wrong command. Type help"
+
 
 
 
@@ -282,6 +343,7 @@ class Ptask(cmd.Cmd):
             '  <arg>:',
             '    add - Add a new task',
             '    list - Show list of all tasks',
+            '    show <id> - Show details of the task with <id>',
         ])
        
     def help_help(self):
