@@ -26,7 +26,7 @@ MISSING = [
 
 SQL_TASK_TABLE = '''CREATE TABLE taskrecords (
     id INTEGER PRIMARY KEY, 
-    user_id INTEGER, 
+    user_id INTEGER,
     description TEXT, 
     task TEXT, 
     start_date DATE, 
@@ -90,6 +90,9 @@ class Ptask(cmd.Cmd):
 
 
     def __valid_date(self,date):
+        if date == '':
+            return True
+        
         try:
             date = time.strptime(date, '%d/%m/%Y')
             return True
@@ -156,7 +159,7 @@ class Ptask(cmd.Cmd):
         if is_admin:
             admin = 1
         else:
-            admin = raw_input('Admin? [y/n]: ').lower()
+            admin = raw_input('Admin? [Y/n]: ').lower()
             admin = 1 if (admin == 'y' or admin == '') else 0
         
         while 1:
@@ -194,24 +197,19 @@ class Ptask(cmd.Cmd):
     def __create_task(self):
         name = raw_input('task name: ')
         description = raw_input('description: ')
-        start = raw_input('start date (d/m/a): ')
-        end = raw_input('end date (d/m/a): ')
         estimated = raw_input('estimated time: ')
         worked = raw_input('worked time: ')
         tags = raw_input('tags: ')
 
         if len(name) < 3:
            print 'Task name must be more than 2 characters!'
-           return    
-        if len(description) < 3:
-           description = 'none'
-        if not self.__valid_date(start) and not self.__valid_date(end):
-           print 'Invalid Dates!'
-        if tags == '':
-           tags = 'none'
+           return
         cursor = self.conn.cursor()
         cursor.execute(SQL_CREATE_TASK, (self.user_id, description, name, start, end, estimated, worked, tags))
         self.conn.commit()
+        start = raw_input('Start? [Y/n]: ').lower()
+        start = 1 if (start == 'y' or start == '') else 0
+        
         print "Task created successfully!"
         
     def __list_task(self):
@@ -224,9 +222,8 @@ class Ptask(cmd.Cmd):
         for row in cursor:
             print "%-20s %-20s %s\t\t %s" % (row[3], row[2], row[6], row[7])
         print '\n'
-
-       
         
+
     #================================================
     # Commands
     #================================================
@@ -251,11 +248,6 @@ class Ptask(cmd.Cmd):
         elif arg[0] == 'list':
             self.__list_task()
 
-
-
-
-    #def do_help(self, line=None):
-    #    print "this is da help"
     def do_EOF(self, line):
         return self.do_exit(line)
         
