@@ -3,15 +3,21 @@
 
 import os
 import cmd
-import getpass
-import random
 import time
-from datetime import date
-import hashlib
+import random
+import getpass
 import hashlib
 import sqlite3
 
+HLINE = '=' * 80
 DATABASE = 'ptask.db'
+NULL_FIELD = ' (leave blank for null)'
+WRONG_CMD = "Wrong command. Type help"
+
+INPUT_NUM = 'num'
+INPUT_DATE= 'date'
+INPUT_TEXT = 'text'
+INPUT_PASS = 'passwd'
 
 INTRO = [
     '\nWelcome to ptask', 
@@ -29,10 +35,10 @@ SQL_TASK_TABLE = '''CREATE TABLE taskrecords (
     user_id INTEGER,
     description TEXT, 
     task TEXT, 
-    start_date DATE, 
-    end_date DATE, 
-    estimated_time INTEGER, 
-    worked_time INTEGER, 
+    start_date FLOAT, 
+    end_date FLOAT, 
+    estimated_time FLOAT, 
+    worked_time FLOAT, 
     tags TEXT
 )'''
 
@@ -51,8 +57,8 @@ SQL_CREATE_USER = '''INSERT INTO users
     VALUES (?,?,?,?,?)'''
 
 SQL_CREATE_TASK = '''INSERT INTO taskrecords 
-    (user_id, description, task, start_date, end_date, estimated_time, worked_time, tags)
-    VALUES (?,?,?,?,?,?,?,?)'''
+    (user_id, description, task, start_date, estimated_time, worked_time, tags)
+    VALUES (?,?,?,?,?,?,?)'''
 
 SQL_UPDATE_LAST_LOGIN = '''UPDATE users SET last_login=? WHERE id=?'''
 
@@ -68,7 +74,7 @@ class Ptask(cmd.Cmd):
         except KeyboardInterrupt:
             self.do_exit('')
     
-    #utils    
+    # utils
     def __confirm_passwords(self, pwd1, pwd2):
         if pwd1 == pwd2:
             return True
@@ -80,24 +86,89 @@ class Ptask(cmd.Cmd):
         for i in range(6):
             s += chr(random.randrange(65,128))        
         return s
-
+        
+    def __get_current_time(self):
+        return time.strftime('%d/%m/%Y %H:%M', time.localtime(time.time()))
+    
+    def __get_arg_value(self, arg, index):
+        try:
+            return arg[index]
+        except IndexError:
+            return None
+            
+    def __cut_field(self, field, size):
+        if len(field) > size:
+            field = field[0:size-3] + '...'
+        return field
+        
     def __last_login(self):
-        #FIXME: There is a better implementation for sure! ;)
-        d = str(date.today().day)+'/'+str(date.today().month)+'/'+str(date.today().year)
+        d = self.__get_current_time()
         cursor = self.conn.cursor()
-        cursor.execute(SQL_UPDATE_LAST_LOGIN, (d,self.user_id))
+        cursor.execute(SQL_UPDATE_LAST_LOGIN, (d, self.user_id))
         self.conn.commit()
 
-
-    def __valid_date(self,date):
-        if date == '':
-            return True
-        
+    def __validate_date(self, date):
         try:
             date = time.strptime(date, '%d/%m/%Y')
-            return True
+            return date
+        except ValueError, TypeError:
+            return None
+
+    def __validate_number(self, number):
+        try:
+           return float(number)
         except ValueError:
-            return False
+           return None
+        
+    def __user_input(self, caption, type=INPUT_TEXT, null=False, options=None):
+        #TODO: Implement size validation
+        
+        rtn = None
+        #First item in options get default
+        if options:
+            opt_str =' ['
+            for i in range(len(options)):
+                opt_str += options[i].upper() if i == 0 else options[i].lower()
+                opt_str += '\\' if (i != len(options) - 1) else ''
+            opt_str += ']'
+        else:
+            opt_str = ''
+            
+        if null:
+            caption += NULL_FIELD
+        
+        while not rtn:
+            if type == INPUT_PASS:
+                rtn = getpass.getpass('%s: ' % caption)
+            else:
+                rtn = raw_input('%s%s: ' % (caption, opt_str))
+            
+            if (not null and rtn == '' and not options):
+                print "%s can't be empty. Please insert a valid value" % caption
+                continue
+            elif (null and rtn == '' and not options):
+                return None
+                
+            if (type == INPUT_DATE):
+                rtn = self.__validate_date(rtn)
+                if not rtn:
+                    print "Please insert a valid date"
+                    continue
+            elif (type == INPUT_NUM):
+                rtn = self.__validate_number(rtn)
+                if not rtn:
+                    print "Please insert a valid number"
+                    continue
+            if options:
+                if rtn == '':
+                    rtn = options[0]
+                else:
+                    rtn = rtn.lower()
+                    if rtn not in options:
+                        print "Please insert a valid value%s" % opt_str
+                        rtn = None
+                        continue
+            return rtn
         
     def __initdb(self):
         if not os.path.isfile(DATABASE):
@@ -115,8 +186,12 @@ class Ptask(cmd.Cmd):
     #users functions        
     def __login(self):
         while 1:
-            user = raw_input('Username: ')
-            pwd = getpass.getpass('Password: ')
+            user = ''
+            pwd = ''
+            while user == '':
+                user = raw_input('Username: ')
+            while pwd == '':
+                pwd = getpass.getpass('Password: ')
             if self.__validate_credentials(user, pwd):
                break
             else:
@@ -146,25 +221,18 @@ class Ptask(cmd.Cmd):
             return True
         
     def __create_user(self, is_admin=False):
-        realname = raw_input('Real name: ')
-        username = raw_input('Username: ')
-        
-        if len(realname) < 3:
-           print 'Real name must be more than 2 characters!'
-           return    
-        if len(username) < 3:
-           print 'User name must be more than 2 characters!'
-           return    
+        realname = self.__user_input('Real name')
+        username = self.__user_input('Username')
 
         if is_admin:
             admin = 1
         else:
-            admin = raw_input('Admin? [Y/n]: ').lower()
-            admin = 1 if (admin == 'y' or admin == '') else 0
+            admin = self.__user_input('Admin?', options=['y', 'n'])
+            admin = 1 if (admin == 'y') else 0
         
         while 1:
-            pwd = getpass.getpass('Password: ')
-            repwd = getpass.getpass('Password again: ')
+            pwd = self.__user_input('Password', type=INPUT_PASS)
+            repwd = self.__user_input('Password again', type=INPUT_PASS)
             if self.__confirm_passwords(pwd, repwd):
                 break
             else:
@@ -183,45 +251,81 @@ class Ptask(cmd.Cmd):
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM users")
         print '\n\t\t\tUsers list'
-        print "==============================================================="
-        print "%-20s %-20s %s\t %s" % ('Username', 'Real Name', 'Admin?', 'Last Login')
-        print "==============================================================="
+        print HLINE
+        print "%-20s %-20s %s\t %s" % ('Username', 'Real Name', 'Admin?', 
+            'Last Login')
+        print HLINE
         for row in cursor:
             admin = 'True' if row[6] == 1 else 'False'
             print "%-20s %-20s %s\t\t %s" % (row[1], row[2], admin, row[5])
         print '\n'
 
-
     #task functions
     
     def __create_task(self):
-        name = raw_input('task name: ')
-        description = raw_input('description: ')
-        estimated = raw_input('estimated time: ')
-        worked = raw_input('worked time: ')
-        tags = raw_input('tags: ')
-
-        if len(name) < 3:
-           print 'Task name must be more than 2 characters!'
-           return
+        worked = None
+        start_date = None
+        oldtask = self.__user_input('Task already started?', options=['y', 'n'])
+        name = self.__user_input('Task name')
+        description = self.__user_input('Description')
+        estimated = self.__user_input('Estimated time', type=INPUT_NUM, null=True)
+        if oldtask == 'y':
+            worked = self.__user_input('Worked time', type=INPUT_NUM, null=True)
+        tags = self.__user_input('Tags', null=True)
+        start = self.__user_input('Start?', options=['y', 'n'])
+        start = 1 if (start == 'y') else 0
+        if start:
+            start_date = self.__get_current_time()
         cursor = self.conn.cursor()
-        cursor.execute(SQL_CREATE_TASK, (self.user_id, description, name, start, end, estimated, worked, tags))
+        cursor.execute(SQL_CREATE_TASK, (self.user_id, description, name, 
+            start_date, estimated, worked, tags))
         self.conn.commit()
-        start = raw_input('Start? [Y/n]: ').lower()
-        start = 1 if (start == 'y' or start == '') else 0
-        
         print "Task created successfully!"
         
-    def __list_task(self):
+    def __list_task(self, from_user=None):
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM taskrecords WHERE id=?", (self.user_id,))
-        print '\n\t\t\t%s\'s tasks' % self.user_name
-        print "==============================================================="
-        print "%-20s %-20s %s\t %s" % ('Name', 'Description', 'Estimated', 'Worked')
-        print "==============================================================="
-        for row in cursor:
-            print "%-20s %-20s %s\t\t %s" % (row[3], row[2], row[6], row[7])
+        if from_user:
+            cursor.execute("SELECT * FROM taskrecords WHERE user_id=?", 
+                (from_user,))
+        else:
+            cursor.execute("SELECT * FROM taskrecords")
+        results = cursor.fetchall()
+        print '\t\t\t\ttasks'
+        print HLINE
+        print "%-3s %-12s %-40s %-10s %-10s" % ('id','Name', 'Description', 
+            'Estimated', 'Worked')
+        print HLINE
+        for row in results:
+            name = self.__cut_field(row[3], 12)
+            desc = self.__cut_field(row[2], 40)
+            print "%-3d %-12s %-40s %-10s %-10s" % (row[0], name, desc, row[6], 
+                row[7])
+        print "Total: %d task(s)" % len(results)
+       
+    def __show_task(self, args):
+        if self.__valid_int(args[1]):
+           task_id = args[1]
+        else:
+           return
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM taskrecords WHERE id=?", (task_id,))
+        row = cursor.fetchone()
+        if row == None:
+           print "Task not found!"
+           return
+        print '\n\t\t\tTask: %s' % row[3]
+        print HLINE
+        print "id:        %d" % row[0]
+        print "name:      %s" % row[3]
+        print "desc:      %s" % row[2]
+        print "start:     %s" % row[4]
+        print "end:       %s" % row[5]
+        print "estimated: %s" % row[6]
+        print "worked:    %s" % row[7]
+        print "tags:      %s" % row[8]
         print '\n'
+        #TODO: add rowcount!
+        #print "%d rows" % rc
         
 
     #================================================
@@ -237,6 +341,8 @@ class Ptask(cmd.Cmd):
             self.__create_user()
         elif arg[0] == 'list':
             self.__list_users()
+        else:
+            print WRONG_CMD
 
     def do_task(self, args):
         arg = args.split()
@@ -246,7 +352,15 @@ class Ptask(cmd.Cmd):
         if arg[0] == 'add':
             self.__create_task()
         elif arg[0] == 'list':
-            self.__list_task()
+            user_id = self.__get_arg_value(arg, 1)
+            self.__list_task(from_user=user_id)
+        elif arg[0] == 'show':
+            if len(arg) < 2:    
+               print '\n'.join(MISSING)
+            else:
+               self.__show_task(arg)
+        else:
+            print WRONG_CMD
 
     def do_EOF(self, line):
         return self.do_exit(line)
@@ -274,6 +388,8 @@ class Ptask(cmd.Cmd):
             '  <arg>:',
             '    add - Add a new task',
             '    list - Show list of all tasks',
+            '    list <user_id> - Show list of all tasks for user with id <user_id>',
+            '    show <id> - Show details of the task with <id>',
         ])
        
     def help_help(self):
