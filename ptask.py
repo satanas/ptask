@@ -57,10 +57,16 @@ SQL_CREATE_USER = '''INSERT INTO users
     VALUES (?,?,?,?,?)'''
 
 SQL_CREATE_TASK = '''INSERT INTO taskrecords 
-    (user_id, description, task, start_date, estimated_time, worked_time, tags)
-    VALUES (?,?,?,?,?,?,?)'''
+    (user_id, description, task, start_date, end_date, estimated_time, 
+    worked_time, tags) VALUES (?,?,?,?,?,?,?,?)'''
 
 SQL_UPDATE_LAST_LOGIN = '''UPDATE users SET last_login=? WHERE id=?'''
+
+SQL_SELECT_TASK = '''SELECT * FROM taskrecords WHERE id=?'''
+
+SQL_START_TASK = '''UPDATE taskrecords SET start_date=?,end_date=NULL WHERE id=?'''
+
+SQL_STOP_TASK = '''UPDATE taskrecords SET end_date=?,worked_time=? WHERE id=?'''
 
 class Ptask(cmd.Cmd):
     def __init__(self):
@@ -178,13 +184,14 @@ class Ptask(cmd.Cmd):
             cursor.execute(SQL_USER_TABLE)
             self.conn.commit()
             print "Database has been created. Now you need to create a user..."
-            self.__create_user(is_admin=True)
+            self.__create_user(is_admin=True, validate=True)
         else:
             self.conn = sqlite3.connect(DATABASE)
             self.__login()
     
     #users functions        
     def __login(self):
+        #TODO: Validate when user is not in DB
         while 1:
             user = ''
             pwd = ''
@@ -217,10 +224,11 @@ class Ptask(cmd.Cmd):
             self.user_name = row[1]
             self.user_id = row[0]
             self.last_login = row[5]
-            print "last login: %s " % str(self.last_login)
+            if self.last_login:
+                print "Last login: %s " % str(self.last_login)
             return True
         
-    def __create_user(self, is_admin=False):
+    def __create_user(self, is_admin=False, validate=False):
         realname = self.__user_input('Real name')
         username = self.__user_input('Username')
 
@@ -246,6 +254,8 @@ class Ptask(cmd.Cmd):
         cursor.execute(SQL_CREATE_USER, (username, realname, pwd_hash, pwd_salt, admin))
         self.conn.commit()
         print "User created successfully!"
+        if validate:
+            self.__validate_credentials(username, pwd)
         
     def __list_users(self):
         cursor = self.conn.cursor()
@@ -274,15 +284,21 @@ class Ptask(cmd.Cmd):
         tags = self.__user_input('Tags', null=True)
         start = self.__user_input('Start?', options=['y', 'n'])
         start = 1 if (start == 'y') else 0
+        cursor = self.conn.cursor()
+        
         if start:
             start_date = self.__get_current_time()
-        cursor = self.conn.cursor()
+            message = "Task created and started successfully!"
+        else:
+            message = "Task created successfully!"
+        
         cursor.execute(SQL_CREATE_TASK, (self.user_id, description, name, 
-            start_date, estimated, worked, tags))
+            start_date, None, estimated, worked, tags))
         self.conn.commit()
-        print "Task created successfully!"
+        print message
         
     def __list_task(self, from_user=None):
+        #TODO: Show marks in tasks that are actually running
         cursor = self.conn.cursor()
         if from_user:
             cursor.execute("SELECT * FROM taskrecords WHERE user_id=?", 
@@ -300,34 +316,68 @@ class Ptask(cmd.Cmd):
             desc = self.__cut_field(row[2], 40)
             print "%-3d %-12s %-40s %-10s %-10s" % (row[0], name, desc, row[6], 
                 row[7])
-        print "Total: %d task(s)" % len(results)
+        print "\nTotal: %d task(s)" % len(results)
        
     def __show_task(self, args):
-        if self.__valid_int(args[1]):
-           task_id = args[1]
+        #TODO: Optimize screen space
+        if self.__validate_number(args[1]):
+            task_id = args[1]
         else:
-           return
+            print "Please insert a valid task id"
+            return
         cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM taskrecords WHERE id=?", (task_id,))
+        cursor.execute(SQL_SELECT_TASK, (task_id,))
         row = cursor.fetchone()
         if row == None:
-           print "Task not found!"
-           return
+            print "Task not found!"
+            return
         print '\n\t\t\tTask: %s' % row[3]
         print HLINE
         print "id:        %d" % row[0]
         print "name:      %s" % row[3]
         print "desc:      %s" % row[2]
-        print "start:     %s" % row[4]
+        print "started    %s" % row[4]
         print "end:       %s" % row[5]
-        print "estimated: %s" % row[6]
-        print "worked:    %s" % row[7]
+        print "estimated: %s h" % row[6]
+        print "worked:    %s h" % row[7]
         print "tags:      %s" % row[8]
         print '\n'
-        #TODO: add rowcount!
-        #print "%d rows" % rc
         
-
+    def __start_task(self, task_id):
+        #TODO: Stop any other task
+        cursor = self.conn.cursor()
+        cursor.execute(SQL_SELECT_TASK, (task_id,))
+        row = cursor.fetchone()
+        if row == None:
+           print "Task not found!"
+           return
+        start_date = self.__get_current_time()
+        cursor.execute(SQL_START_TASK, (start_date, task_id))
+        self.conn.commit()
+        print "Task %s started successfully" % task_id
+        
+    def __stop_task(self, task_id):
+        cursor = self.conn.cursor()
+        cursor.execute(SQL_SELECT_TASK, (task_id,))
+        row = cursor.fetchone()
+        if row == None:
+           print "Task not found!"
+           return
+        start_date = row[4]
+        worked_time = row[7]
+        if worked_time is None:
+            worked_time = 0
+        end_date = self.__get_current_time()
+        start_secs = time.mktime(time.strptime(start_date, '%d/%m/%Y %H:%M'))
+        end_secs = time.mktime(time.strptime(end_date, '%d/%m/%Y %H:%M'))
+        this_work = (end_secs - start_secs)/3600
+        worked_time += this_work
+        cursor.execute(SQL_STOP_TASK, (end_date, worked_time, task_id))
+        self.conn.commit()
+        print "Task %s stoped successfully" % task_id
+        print "You've worked %.2fh in this task for a total of %.2fh" % 
+            (this_work, worked_time)
+        
     #================================================
     # Commands
     #================================================
@@ -353,12 +403,22 @@ class Ptask(cmd.Cmd):
             self.__create_task()
         elif arg[0] == 'list':
             user_id = self.__get_arg_value(arg, 1)
-            self.__list_task(from_user=user_id)
+            self.__list_task(user_id)
         elif arg[0] == 'show':
             if len(arg) < 2:    
                print '\n'.join(MISSING)
             else:
                self.__show_task(arg)
+        elif arg[0] == 'start':
+            if len(arg) < 2:    
+               print '\n'.join(MISSING)
+            else:
+               self.__start_task(arg[1])
+        elif arg[0] == 'stop':
+            if len(arg) < 2:    
+               print '\n'.join(MISSING)
+            else:
+               self.__stop_task(arg[1])
         else:
             print WRONG_CMD
 
@@ -390,6 +450,8 @@ class Ptask(cmd.Cmd):
             '    list - Show list of all tasks',
             '    list <user_id> - Show list of all tasks for user with id <user_id>',
             '    show <id> - Show details of the task with <id>',
+            '    start <id> - Start the time tracking for the task with <id>',
+            '    stop <id> - Stop the time tracking for the task with <id>',
         ])
        
     def help_help(self):
