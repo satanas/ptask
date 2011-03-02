@@ -375,8 +375,7 @@ class Ptask(cmd.Cmd):
         cursor.execute(SQL_STOP_TASK, (end_date, worked_time, task_id))
         self.conn.commit()
         print "Task %s stoped successfully" % task_id
-        print "You've worked %.2fh in this task for a total of %.2fh" % 
-            (this_work, worked_time)
+        print "You've worked %.2fh on this task for a total of %.2fh" %(this_work, worked_time)
         
     #================================================
     # Commands
